@@ -5,7 +5,7 @@ Created by Thomas Bourcey
 This script exports Grafana dashboards to JSON files, preserving the folder structure.
 Supports Prometheus, Loki, and InfluxDB datasources.
 
-Version: 0.5.3
+Version: 0.5.4
 
 Usage:
     python export_grafana_dashboards.py [--grafana_url URL] [--api_key API_KEY] [--save_folder /path/to/save] [--export_sharing True/False] [--force True/False]
@@ -18,7 +18,7 @@ import argparse
 import sys
 
 # Script version
-script_version = "0.5.3"
+script_version = "0.5.4"
 
 # Default configuration for Grafana API
 default_grafana_url = ''
@@ -146,13 +146,18 @@ def export_dashboard(dashboard_uid, dashboard_title, folder_path, grafana_url, h
     specific_info = {k: dashboard_data.get(k) for k in ['timezone', 'title', 'uid', 'version', 'weekStart']}
     
     # Update specific_info in the dashboard data without changing the original UID
-    dashboard_data['__inputs'] = dashboard_data.get('__inputs', [])
-    dashboard_data['__elements'] = dashboard_data.get('__elements', {})
-    dashboard_data['__requires'] = dashboard_data.get('__requires', [])
     dashboard_data.update(specific_info)
+    
+    # Move the __inputs, __elements, and __requires to the beginning of the JSON structure
+    ordered_dashboard_data = {}
+    for key in ['__inputs', '__elements', '__requires']:
+        if key in dashboard_data:
+            ordered_dashboard_data[key] = dashboard_data[key]
+
+    ordered_dashboard_data.update(dashboard_data)
 
     with open(output_path, 'w') as f:
-        json.dump(dashboard_data, f, indent=2)
+        json.dump(ordered_dashboard_data, f, indent=2)
 
     print(f'Dashboard "{dashboard_title}" exported successfully in folder "{folder_path}".')
 
