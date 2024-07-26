@@ -5,7 +5,7 @@ Created by Thomas Bourcey
 This script exports Grafana dashboards to JSON files, preserving the folder structure.
 Supports Prometheus, Loki, and InfluxDB datasources.
 
-Version: 0.5.2
+Version: 0.5.3
 
 Usage:
     python export_grafana_dashboards.py [--grafana_url URL] [--api_key API_KEY] [--save_folder /path/to/save] [--export_sharing True/False] [--force True/False]
@@ -18,7 +18,7 @@ import argparse
 import sys
 
 # Script version
-script_version = "0.5.2"
+script_version = "0.5.3"
 
 # Default configuration for Grafana API
 default_grafana_url = ''
@@ -98,7 +98,8 @@ def export_dashboard(dashboard_uid, dashboard_title, folder_path, grafana_url, h
     if export_sharing:
         inputs = []
         requires = [{'type': 'grafana', 'id': 'grafana', 'name': 'Grafana', 'version': '11.0.0'}]
-        
+        elements = {}
+
         datasources = set()
         for panel in dashboard['dashboard'].get('panels', []):
             if 'datasource' in panel:
@@ -119,9 +120,9 @@ def export_dashboard(dashboard_uid, dashboard_title, folder_path, grafana_url, h
                 })
 
         dashboard['dashboard']['__inputs'] = inputs
+        dashboard['dashboard']['__elements'] = elements
         dashboard['dashboard']['__requires'] = requires
         dashboard['dashboard']['id'] = None
-        dashboard['dashboard']['uid'] = "${DS_PROMETHEUS}"
         for panel in dashboard['dashboard'].get('panels', []):
             if 'datasource' in panel:
                 if isinstance(panel['datasource'], dict):
@@ -131,19 +132,27 @@ def export_dashboard(dashboard_uid, dashboard_title, folder_path, grafana_url, h
                     if isinstance(target['datasource'], dict):
                         target['datasource']['uid'] = "${DS_PROMETHEUS}"
 
-    specific_info = {k: dashboard['dashboard'].get(k) for k in ['timezone', 'title', 'uid', 'version', 'weekStart']}
+        if 'templating' in dashboard['dashboard']:
+            for variable in dashboard['dashboard']['templating'].get('list', []):
+                variable['current'] = {}
+                if 'datasource' in variable and isinstance(variable['datasource'], dict):
+                    variable['datasource']['uid'] = "${DS_PROMETHEUS}"
 
     sanitized_title = ''.join(e for e in dashboard_title if e.isalnum() or e in (' ', '-', '_')).strip()
     output_path = os.path.join(folder_path, f'{sanitized_title}.json')
     os.makedirs(folder_path, exist_ok=True)
 
     dashboard_data = dashboard['dashboard']
-    dashboard_data_ordered = {k: dashboard_data[k] for k in ['__inputs', '__requires'] if k in dashboard_data}
-    dashboard_data_ordered.update(dashboard_data)
-    dashboard_data_ordered.update(specific_info)
+    specific_info = {k: dashboard_data.get(k) for k in ['timezone', 'title', 'uid', 'version', 'weekStart']}
+    
+    # Update specific_info in the dashboard data without changing the original UID
+    dashboard_data['__inputs'] = dashboard_data.get('__inputs', [])
+    dashboard_data['__elements'] = dashboard_data.get('__elements', {})
+    dashboard_data['__requires'] = dashboard_data.get('__requires', [])
+    dashboard_data.update(specific_info)
 
     with open(output_path, 'w') as f:
-        json.dump(dashboard_data_ordered, f, indent=2)
+        json.dump(dashboard_data, f, indent=2)
 
     print(f'Dashboard "{dashboard_title}" exported successfully in folder "{folder_path}".')
 
@@ -202,7 +211,7 @@ def main():
         dashboards = get_all_dashboards_and_folders(grafana_url, headers)
         folder_structure = build_folder_structure(folders, dashboards, output_dir)
         export_dashboards(folder_structure, grafana_url, headers, export_sharing)
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         print(f"Error: {e}")
         sys.exit(1)
 
